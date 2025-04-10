@@ -1,0 +1,333 @@
+
+---
+title: "(Clone) Lm mortality"
+output:
+  html_document:
+    toc: true
+---
+
+
+```{r}
+library(sparklyr)
+
+# create a sparklyr connection
+sc <- spark_connect(method = "databricks")
+```
+
+
+```{r}
+%scala
+spark.sparkContext.hadoopConfiguration.set(
+  "fs.azure.account",
+  "key"
+)
+```
+
+
+```{r}
+df <- spark_read_parquet(sc,
+                                 "df.parquet",
+                                 memory = FALSE,
+                                 header = TRUE)
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(lme4)
+```
+
+
+```{r}
+UnfilteredData <- df %>%
+  collect() %>%
+  select(-c(DrugList, DrugListIncomplete, ProductList, DDList, MgActiveMoleculeList, TherapyIndexList, MgActiveMoleculePerKgMeatList,
+  Colour, CropId)) %>%
+  mutate(
+    SurfaceSQm = SurfaceSQm / 1000,
+    BirdsWithFPL = round(FPL * NumberProcessed, 0),
+    BirdsDeadWeek1 = round(FirstWeekMortality/100 * NumberProcessed, 0), # KLOPT NIET!!!
+    MortalityAfterWeek1 = TotalMortality - FirstWeekMortality,
+    BirdsDeadAfterWeek1 = round((TotalMortality - FirstWeekMortality)/100 * NumberProcessed, 0),
+    PercentFemale = ifelse(is.na(PercentFemale), "unknown",
+                           ifelse(PercentFemale >99.99, "female",
+                                  ifelse(PercentFemale <50, "majority_male",
+                                  "majority_female"))),
+    Female = ifelse(Sex == "F", 1, 0),
+    Season = ifelse(
+      ((Week >= 49 ) | (Week <= 8)), "winter",
+      ifelse(
+        ((Week >= 9 ) & (Week <= 22)), "spring",
+        ifelse(
+          ((Week >= 23 ) & (Week <= 35)), "summer",
+          "autumn"
+          )
+      )
+    )
+  ) %>%
+  rename(Farm = FarmId) %>%
+  mutate(
+    Farm = factor(Farm)
+  )
+```
+
+
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+%md
+#Analysis data
+```
+
+
+```{r}
+AnalysisData <- df %>%
+  collect() %>%
+  select(-c(DrugList, DrugListIncomplete, ProductList, DDList, MgActiveMoleculeList, TherapyIndexList, MgActiveMoleculePerKgMeatList, PercentMale, RejectedM, RejectedF, Breed, CropId)) %>%
+  mutate(
+    SurfaceSQm = SurfaceSQm / 1000,
+    StartSize = as.integer(round(NumberProcessed/(1-(TotalMortality/100)), 0)),
+    BirdsWithFPL = round(FPL * NumberProcessed, 0),
+    BirdsDeadWeek1 = round(FirstWeekMortality/100 * StartSize, 0),
+    MortalityAfterWeek1 = TotalMortality - FirstWeekMortality,
+    BirdsDeadAfterWeek1 = round((TotalMortality - FirstWeekMortality)/100 * StartSize, 0),
+    PercentFemale = ifelse(is.na(PercentFemale), "unknown",
+                           ifelse(PercentFemale >99.99, "female",
+                                  ifelse(PercentFemale <50, "majority_male",
+                                  "majority_female"))),
+    Female = ifelse(Sex == "F", 1, 0),
+    HatchWeekIntermediate = ceiling(Week - (FinalAge / 7)),
+    HatchWeek = ifelse(
+      HatchWeekIntermediate > 0, HatchWeekIntermediate,    # round up because week of slaughter is always assumed start of week
+      52 + HatchWeekIntermediate),  # + because they are negative
+    HatchYear = ifelse(
+      HatchWeekIntermediate > 0, Year,
+      Year - 1),
+    SeasonHatch = ifelse(
+      ((HatchWeek >= 49 ) | (HatchWeek <= 8)), "winter",
+      ifelse(
+        ((HatchWeek >= 9 ) & (HatchWeek <= 22)), "spring",
+        ifelse(
+          ((HatchWeek >= 23 ) & (HatchWeek <= 35)), "summer",
+          "autumn"
+          )
+      )
+    ),
+    YearTwoGroups = ifelse(
+      ((HatchWeek >= 49 ) & (HatchYear == 2020)), 1,
+      ifelse(
+        ((HatchWeek < 49 ) & (HatchYear == 2021)), 1,
+        ifelse(
+          ((HatchWeek >= 49 ) & (HatchYear == 2021)), 2,
+          ifelse(
+            ((HatchWeek < 49 ) & (HatchYear == 2022)), 2,
+            NA)
+    ))),
+    SeasonSlaughter = ifelse(
+      ((Week >= 49 ) | (Week <= 8)), "winter",
+      ifelse(
+        ((Week >= 9 ) & (Week <= 22)), "spring",
+        ifelse(
+          ((Week >= 23 ) & (Week <= 35)), "summer",
+          "autumn"
+          )
+      )
+    ),
+    YearSeasonSlaughter = paste0(as.character(Year), SeasonSlaughter)
+  ) %>%
+  rename(Farm = FarmId) %>%
+  filter(
+    Sex != "M",
+    TotalMortality > FirstWeekMortality,
+    FirstWeekMortality != 0, #removes 2 entries
+    DailyGain > 0,   #removes one 0 value
+    FinalAge < 60 # removes 1 entry
+  ) %>%
+  mutate(
+    Farm = factor(Farm)
+  ) %>%
+  select(-HatchWeekIntermediate) %>%
+  na.omit()   # this omits 26 cycles of autumn 2020
+```
+
+
+```{r}
+# TEST: only females
+# to check if residual confounding of sex could have an impact
+
+fem <- AnalysisData %>%
+  filter(PercentFemale == "female")
+```
+
+
+```{r}
+par(mfrow = c(2,2))
+hist(AnalysisData$BirdsDeadWeek1)
+hist(AnalysisData$FirstWeekMortality)
+hist(AnalysisData$BirdsDeadAfterWeek1)
+hist(AnalysisData$MortalityAfterWeek1)
+```
+
+
+```{r}
+par(mfrow = c(2,3))
+hist(AnalysisData$DailyGain, breaks = 20)
+hist(AnalysisData$FCR, breaks = 20)
+hist(AnalysisData$AverageWeight, breaks = 20)
+hist(AnalysisData$StockingDensity, breaks = 20)
+hist(AnalysisData$NumberProcessed, breaks = 20)
+```
+
+
+```{r}
+%md
+# 2. FWM --> later mortality
+```
+
+
+```{r}
+model0_poisson <- glmer(BirdsDeadAfterWeek1 ~ scale(FirstWeekMortality) + offset(log(StartSize)) + (1|Farm),
+                 data = AnalysisData,
+                 family = poisson,
+                 glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+```
+
+
+```{r}
+model0 <- glmmTMB::glmmTMB(BirdsDeadAfterWeek1 ~ FirstWeekMortality + offset(log(StartSize)) + (1|Farm),
+                 data = AnalysisData,
+                 family = glmmTMB::nbinom2,
+                 control = glmmTMB::glmmTMBControl(optCtrl=list(iter.max=1e3,eval.max=1e3))
+                )
+```
+
+
+```{r}
+lme4::VarCorr(model0)
+# binomial model doesn't give residual variance
+```
+
+
+```{r}
+summary(model0)
+```
+
+
+```{r}
+model <- glmmTMB::glmmTMB(BirdsDeadAfterWeek1 ~ 
+                             FirstWeekMortality + 
+                             factor(YearTwoGroups) +
+                             PercentFemale + #groups
+                             Thinned + #yes or no 
+                             offset(log(StartSize)) + (1|Farm),
+                 data = AnalysisData,
+                 family = glmmTMB::nbinom2,
+                 control = glmmTMB::glmmTMBControl(optCtrl=list(iter.max=1e3,eval.max=1e3))
+                )
+summary(model)
+```
+
+
+```{r}
+model_fem <- glmmTMB::glmmTMB(BirdsDeadAfterWeek1 ~ 
+                             FirstWeekMortality + 
+                             HatchYear +
+                             Thinned + #yes or no
+                             offset(log(StartSize)) + (1|Farm),
+                 data = fem,
+                 family = glmmTMB::nbinom2,
+                 control = glmmTMB::glmmTMBControl(optCtrl=list(iter.max=1e3,eval.max=1e3))
+                )
+summary(model_fem)
+```
+
+
+```{r}
+%md
+# 3. FWM --> Daily gain
+```
+
+
+```{r}
+library(lmerTest)
+```
+
+
+```{r}
+model0 <- lmerTest::lmer(DailyGain ~ FirstWeekMortality + (1|Farm),
+                 data = AnalysisData)
+
+summary(model0)
+```
+
+
+```{r}
+modelDG <- lmerTest::lmer(DailyGain ~ FirstWeekMortality +
+                             HatchYear +
+                             PercentFemale + #groups
+                             Thinned + #yes or no
+                             (1|Farm),
+                 data = AnalysisData)
+summary(modelDG)
+```
+
+
+```{r}
+par(mfrow = c(2,2))
+hist(residuals(modelDG))
+qqnorm(residuals(modelDG))
+```
+
+
+```{r}
+# ONLY FEMALE FLOCKS
+
+modelDGF <- lmerTest::lmer(DailyGain ~ FirstWeekMortality +
+                             HatchYear +
+                             Thinned + #yes or no
+                             (1|Farm),
+                 data = fem)
+summary(modelDGF)
+```
+
+
+```{r}
+%md
+#4. FWM --> FCR
+```
+
+
+```{r}
+model0 <- lmerTest::lmer(FCR ~ FirstWeekMortality + (1|Farm),
+                 data = AnalysisData)
+summary(model0)                
+```
+
+
+```{r}
+modelFCR <- lmerTest::lmer(FCR ~ FirstWeekMortality + 
+                             HatchYear +
+                             PercentFemale + #groups
+                             Thinned +
+                             (1|Farm),
+                 data = AnalysisData)
+
+summary(modelFCR)
+```
+
+
+```{r}
+# ONLY FEMALE
+
+modelFCRF <- lmerTest::lmer(FCR ~ FirstWeekMortality + 
+                             HatchYear +
+                             Thinned +
+                             (1|Farm),
+                 data = fem)
+
+summary(modelFCRF)
+```
