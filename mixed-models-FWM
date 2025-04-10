@@ -1,6 +1,6 @@
 
 ---
-title: "(Clone) factors FWM"
+title: "mixed-models-FWM"
 output:
   html_document:
     toc: true
