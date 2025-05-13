@@ -146,6 +146,19 @@ AnalysisData <- df %>%
   na.omit()   # this omits 26 cycles of autumn 2020
 ```
 
+```{r}
+%md
+# Within- and between-farm variation
+```
+
+```{r}
+m1 <- glmmTMB::glmmTMB(BirdsDeadWeek1 ~
+                             offset(log(StartSize)) + (1|Farm),
+                 data = AnalysisData,
+                 family = glmmTMB::nbinom2,
+                 control = glmmTMB::glmmTMBControl(optCtrl=list(iter.max=1e3,eval.max=1e3))
+                )
+```
 
 ```{r}
 %md
@@ -235,6 +248,10 @@ drop1(model5)
 
 ```{r}
 summary(model5)
+```
+
+```{r}
+performance::icc(model5)
 ```
 
 
