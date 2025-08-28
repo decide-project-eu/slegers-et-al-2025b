@@ -53,18 +53,18 @@ library(dplyr)
 ```{r}
 AnalysisData <- df %>%
   collect() %>%
-  select(-c(DrugList, DrugListIncomplete, ProductList, DDList, MgActiveMoleculeList, TherapyIndexList, MgActiveMoleculePerKgMeatList, PercentMale, RejectedM, RejectedF, Breed, CropId)) %>%
+  select(-c(FPL, DrugList, DrugListIncomplete, ProductList, DDList, MgActiveMoleculeList, TherapyIndexList, MgActiveMoleculePerKgMeatList, PercentMale, RejectedM, RejectedF, AvgMinTemp, AvgMaxTemp, AvgPrecipitation, TotalMortalityLag1, FirstWeekMortalityLag1, NumberOfAntibioticsLag1, FCRLag1, DailyGainLag1, FPLLag1, RejectedFLag1, RejectedMLag1, StockingDensityLag1, AvgMinTempLag1, AvgMaxTempLag1, Colour, CropId)) %>%
   mutate(
     SurfaceSQm = SurfaceSQm / 1000,
     StartSize = as.integer(round(NumberProcessed/(1-(TotalMortality/100)), 0)),
-    BirdsWithFPL = round(FPL * NumberProcessed, 0),
     BirdsDeadWeek1 = round(FirstWeekMortality/100 * StartSize, 0),
     MortalityAfterWeek1 = TotalMortality - FirstWeekMortality,
     BirdsDeadAfterWeek1 = round((TotalMortality - FirstWeekMortality)/100 * StartSize, 0),
-    PercentFemale = ifelse(is.na(PercentFemale), "unknown",
+    PercentFemale = ifelse(is.na(PercentFemale), "unsexed",
                            ifelse(PercentFemale >99.99, "female",
                                   ifelse(PercentFemale <50, "majority_male",
                                   "majority_female"))),
+    PercentFemale = factor(PercentFemale, levels = c("unsexed", "majority_male", "majority_female", "female")),
     Female = ifelse(Sex == "F", 1, 0),
     HatchWeekIntermediate = ceiling(Week - (FinalAge / 7)),
     HatchWeek = ifelse(
@@ -83,6 +83,7 @@ AnalysisData <- df %>%
           )
       )
     ),
+    SeasonHatch = factor(SeasonHatch, levels = c("winter", "spring", "summer", "autumn")),
     YearTwoGroups = ifelse(
       ((HatchWeek >= 49 ) & (HatchYear == 2020)), 1,
       ifelse(
@@ -103,7 +104,13 @@ AnalysisData <- df %>%
           )
       )
     ),
-    YearSeasonSlaughter = paste0(as.character(Year), SeasonSlaughter)
+    YearSeasonSlaughter = paste0(as.character(Year), SeasonSlaughter),
+    Breed = case_when(
+        Breed == "R" ~ "Ross",
+        Breed == "U" ~ "Cobb",
+        is.na(Breed) ~ "Unknown",
+        TRUE ~ "Unknown"
+    )
   ) %>%
   rename(Farm = FarmId) %>%
   filter(
@@ -117,16 +124,7 @@ AnalysisData <- df %>%
     Farm = factor(Farm)
   ) %>%
   select(-HatchWeekIntermediate) %>%
-  na.omit()   # this omits 26 cycles of autumn 2020
-```
-
-
-```{r}
-# TEST: only females
-# to check if residual confounding of sex could have an impact
-
-fem <- AnalysisData %>%
-  filter(PercentFemale == "female")
+  filter(!is.na(YearTwoGroups))
 ```
 
 
@@ -188,27 +186,12 @@ model <- glmmTMB::glmmTMB(BirdsDeadAfterWeek1 ~
                              FirstWeekMortality + 
                              factor(YearTwoGroups) +
                              PercentFemale + #groups
-                             Thinned + #yes or no 
                              offset(log(StartSize)) + (1|Farm),
                  data = AnalysisData,
                  family = glmmTMB::nbinom2,
                  control = glmmTMB::glmmTMBControl(optCtrl=list(iter.max=1e3,eval.max=1e3))
                 )
 summary(model)
-```
-
-
-```{r}
-model_fem <- glmmTMB::glmmTMB(BirdsDeadAfterWeek1 ~ 
-                             FirstWeekMortality + 
-                             HatchYear +
-                             Thinned + #yes or no
-                             offset(log(StartSize)) + (1|Farm),
-                 data = fem,
-                 family = glmmTMB::nbinom2,
-                 control = glmmTMB::glmmTMBControl(optCtrl=list(iter.max=1e3,eval.max=1e3))
-                )
-summary(model_fem)
 ```
 
 
@@ -235,7 +218,6 @@ summary(model0)
 modelDG <- lmerTest::lmer(DailyGain ~ FirstWeekMortality +
                              HatchYear +
                              PercentFemale + #groups
-                             Thinned + #yes or no
                              (1|Farm),
                  data = AnalysisData)
 summary(modelDG)
@@ -246,18 +228,6 @@ summary(modelDG)
 par(mfrow = c(2,2))
 hist(residuals(modelDG))
 qqnorm(residuals(modelDG))
-```
-
-
-```{r}
-# ONLY FEMALE FLOCKS
-
-modelDGF <- lmerTest::lmer(DailyGain ~ FirstWeekMortality +
-                             HatchYear +
-                             Thinned + #yes or no
-                             (1|Farm),
-                 data = fem)
-summary(modelDGF)
 ```
 
 
@@ -278,22 +248,8 @@ summary(model0)
 modelFCR <- lmerTest::lmer(FCR ~ FirstWeekMortality + 
                              HatchYear +
                              PercentFemale + #groups
-                             Thinned +
                              (1|Farm),
                  data = AnalysisData)
 
 summary(modelFCR)
-```
-
-
-```{r}
-# ONLY FEMALE
-
-modelFCRF <- lmerTest::lmer(FCR ~ FirstWeekMortality + 
-                             HatchYear +
-                             Thinned +
-                             (1|Farm),
-                 data = fem)
-
-summary(modelFCRF)
 ```
