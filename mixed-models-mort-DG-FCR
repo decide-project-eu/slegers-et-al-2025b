@@ -40,40 +40,6 @@ library(lme4)
 
 
 ```{r}
-UnfilteredData <- df %>%
-  collect() %>%
-  select(-c(DrugList, DrugListIncomplete, ProductList, DDList, MgActiveMoleculeList, TherapyIndexList, MgActiveMoleculePerKgMeatList,
-  Colour, CropId)) %>%
-  mutate(
-    SurfaceSQm = SurfaceSQm / 1000,
-    BirdsWithFPL = round(FPL * NumberProcessed, 0),
-    BirdsDeadWeek1 = round(FirstWeekMortality/100 * NumberProcessed, 0), # KLOPT NIET!!!
-    MortalityAfterWeek1 = TotalMortality - FirstWeekMortality,
-    BirdsDeadAfterWeek1 = round((TotalMortality - FirstWeekMortality)/100 * NumberProcessed, 0),
-    PercentFemale = ifelse(is.na(PercentFemale), "unknown",
-                           ifelse(PercentFemale >99.99, "female",
-                                  ifelse(PercentFemale <50, "majority_male",
-                                  "majority_female"))),
-    Female = ifelse(Sex == "F", 1, 0),
-    Season = ifelse(
-      ((Week >= 49 ) | (Week <= 8)), "winter",
-      ifelse(
-        ((Week >= 9 ) & (Week <= 22)), "spring",
-        ifelse(
-          ((Week >= 23 ) & (Week <= 35)), "summer",
-          "autumn"
-          )
-      )
-    )
-  ) %>%
-  rename(Farm = FarmId) %>%
-  mutate(
-    Farm = factor(Farm)
-  )
-```
-
-
-```{r}
 library(dplyr)
 ```
 
