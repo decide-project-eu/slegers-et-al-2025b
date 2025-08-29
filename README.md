@@ -8,7 +8,7 @@ This repository includes the R script to run the following analyses:
 
 These analyses were performed in Databricks, using R v4.2.2 (R Core Team, 2022). The following R packages are used: dplyr v1.0.10 (Wickham et al., 2022), ggplot2 v3.4.0 (Wickham, 2009), lme4 v1.1-37 (Bates et al., 2015), lmerTest v3.1-3 (Kuznetsova et al., 2017), lsmeans v2.30-2 (Lenth, 2016), glmmTMB v1.1.12 (Brooks et al., 2017), and performance v0.15.0 (Lüdecke et al., 2021).
 
-##References
+## References:
 
 - Bates, D., M. Mächler, B. Bolker, and S. Walker. 2015. Fitting Linear Mixed-Effects Models Using lme4. J. Stat. Softw. 67:1–48.
 - Brooks, M. E., K. Kristensen, K. J. van Benthem, A. Magnusson, C. W. Berg, A. Nielsen, H. J. Skaug, M. Mächler, and B. M. Bolker. 2017. glmmTMB Balances Speed and Flexibility Among Packages for Zero-inflated - Generalized Linear Mixed Modeling. R J. 9:378–400.
